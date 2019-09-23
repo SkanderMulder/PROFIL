@@ -1,0 +1,4562 @@
+---
+title: "0033_PROFIL_2017: Statistical Analysis of the Metabolome in Relation to Renal Complications"
+author: Tommi Suvitaival, tommi.raimo.leo.suvitaival@regionh.dk, Steno Diabetes Center
+  Copenhagen
+date: "`r base::Sys.Date()`"
+output:
+   pdf_document:
+    keep_tex: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 6
+abstract: "This document is Supplementary Material to the paper \\emph{Sugar Derivatives and Branched-Chain Amino Acids Are Associated with Present and Future Renal Impairment in Type 1 Diabetes} by Nete Tofte, Tommi Suvitaival, Kajetan Trost, Ismo Mattila, Simone Theilade, Signe A. Winther, Tarun S. Ahluwalia, Marie Frimodt-M\\{o}ller, Cristina Legido-Quigley and Peter Rossing."
+---
+
+\newpage
+
+This document is Supplementary Material to the paper \\emph{Sugar Derivatives and Branched-Chain Amino Acids Are Associated with Present and Future Renal Impairment in Type 1 Diabetes} by Nete Tofte, Tommi Suvitaival, Kajetan Trost, Ismo Mattila, Simone Theilade, Signe A. Winther, Tarun S. Ahluwalia, Marie Frimodt-M\\{o}ller, Cristina Legido-Quigley and Peter Rossing.
+
+```{r Settings, echo=FALSE}
+
+echo <- TRUE
+
+```
+
+\newpage
+
+```{r Load-Data, warning=FALSE, echo=echo}
+
+data.loaded <-
+  read.table( 
+    file = "L:/LovbeskyttetMapper/PROFILmetab/Data/metabolomics/0033_PROFIL_2017_metabolomics_data--kNN-obs-sel--181212-h.tsv",
+    header = TRUE,
+    sep = "\t",
+    stringsAsFactors = FALSE,
+    comment.char = "",
+    check.names = FALSE
+  )
+
+data.design <- 
+  haven::read_sas( data_file="L:/LovbeskyttetMapper/PROFILmetab/Data/profil_nb.sas7bdat" )
+
+### Follow-up data from SAS file
+
+data.follow.up <-
+  haven::read_sas( data_file="L:/LovbeskyttetMapper/PROFILmetab/Data/follow-up-180311/profil_kidney.sas7bdat" )
+
+data.follow.up.new.albu <-
+  haven::read_sas( data_file="L:/LovbeskyttetMapper/PROFILmetab/Data/follow-up-180311/profil__new_albu__180608.sas7bdat" )
+
+# Log-transform data
+
+rownames( data.loaded ) <- data.loaded$"Name"
+
+names.metabolites <- 
+  colnames( data.loaded )[ grepl( x = colnames( data.loaded ), pattern = "; " ) ]
+
+data.metabolites.only <- data.loaded[ , names.metabolites ]
+
+data.metabolites.only[ data.metabolites.only <= 0 ] <- NA
+
+data.metabolites.only <- log2( data.metabolites.only )
+
+data.metabolites.only <- 
+  data.frame( data.metabolites.only,
+              check.names = FALSE,
+              stringsAsFactors = FALSE )
+
+data.scaled <- data.loaded
+
+data.scaled[ , names.metabolites ] <- 
+  data.metabolites.only[ rownames( data.scaled ), names.metabolites ]
+
+
+## Cleanup clinical data
+
+
+data.design <- 
+  data.frame( 
+    lapply( 
+      X = data.design, 
+      FUN = function( x ) { x[ is.nan( x ) ] <- NA; return( x ) }
+    ), 
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+
+data.design[ which( data.design$"bmi"==133.11 ), "bmi" ] <- NA
+
+### Create additional clinical variables
+
+data.design$"Group" <- data.design$"Albuminuri_3_groups"
+data.design[ which( data.design$"Control_vs_patients"==5 ), "Group" ] <- 5
+
+data.design$"Group" <- 
+  factor( 
+    x = data.design$"Group", 
+    levels = c( "1", "3", "4", "5" ), 
+    labels = c( "T1D Control", "T1D Micro", "T1D Macro", "Healthy Control" )
+  )
+
+data.design$"Group.continuous" <- data.design$"Group"
+
+data.design[ which( data.design$"Group.continuous" == "Healthy Control" ), 
+             "Group.continuous" ] <- NA
+
+data.design$"Group.continuous" <- as.numeric( data.design$"Group.continuous" ) - 1
+
+data.design$"sex" <- as.factor( data.design$"sex" ) # NB: Not complete; Use "Gender" instead.
+
+data.design$"Gender"[ data.design$"Gender"=="" ] <- NA
+data.design$"Gender" <- as.numeric( as.character( data.design$"Gender" ) )
+
+# NB: "uacr" not complete; use "logUAER" instead.
+data.design$"uacr" <- as.numeric( as.character( data.design$"uacr" ) )
+
+data.design$"Albuminuria.in.T1D" <- 
+  factor( 
+    x = ( data.design$"Group"=="T1D Micro" | data.design$"Group"=="T1D Macro" ), 
+    levels = c( FALSE, TRUE ), 
+    labels = c( "No Albuminuria", "Albuminuria" ) )
+
+data.design$"Albuminuria.in.T1D"[ data.design$"Group"=="Healthy Control" ] <- NA
+
+data.design$"Insulin_use" <- ( data.design$"Insulin_day_dose" > 0 )*1
+
+data.design$"Log1plus.Beat_to_beat" <- log10( 1 + data.design$"Beat_to_beat" )
+
+data.design$"Log.MeanPWV" <- log10( data.design$"MeanPWV" )
+
+###
+### Part 3: Merge data sets
+###
+
+data.follow.up <- 
+  merge( 
+    x = data.follow.up, 
+    y = data.follow.up.new.albu,
+    by = "id_profil",
+    incomparables = NA
+  )
+
+data <- 
+  merge( 
+    x = data.design,
+    y = data.follow.up,
+    by.x = "corenr",
+    by.y = "id_profil",
+    incomparables = NA
+  )
+
+# Other
+
+data$"Date_num" <- as.numeric( data$"DATE" )
+
+data.scaled$"Batch" <- as.factor( data.scaled$"Batch" )
+
+data$"log_Blood_TGA" <- log2( data$"Blood_TGA" )
+
+data$"logUAER" <- data$"logUAER" * log2( 10 ) # log10 => log2
+
+data$"slope_albuminuria_profil" <- data$"slope_albuminuria_profil" * log2( exp( 1 ) )
+data$"slope_gfr_profil" <- data$"slope_gfr_profil" * log2( exp( 1 ) )
+
+data$"loglogUAER" <- log2( data$"logUAER" )
+
+data$"RAAS.original" <- data$"RAAS"
+
+data$"RAAS" <- data$"RAAS" - 1
+
+data <- 
+  merge( 
+    x = data,
+    y = data.scaled,
+    by.x = "corenr",
+    by.y = "Label",
+    incomparables = NA
+  )
+
+data.w.healthy.control <- data
+
+data <- data[ which( data$"Group" != "Healthy Control" ), ]
+
+```
+
+\newpage
+
+```{r Names-Mapping, echo = echo}
+
+names.mapping <- 
+  data.frame( 
+    Original = names.metabolites, 
+    Made = make.names( names.metabolites ),
+    stringsAsFactors = FALSE
+  )
+
+rownames( names.mapping ) <- names.mapping$"Made"
+
+names.mapping$"Cleaned" <-
+  stringr::str_split_fixed( 
+    string = names.mapping$"Original", 
+    pattern = "; [0-9]", 
+    n = 2
+  )[ , 1 ]
+
+names.mapping$"Cleaned" <- 
+  stringr::str_replace( 
+    string = names.mapping$"Cleaned",
+    pattern = ", [0-9]*TMS",
+    replacement = ""
+  )
+
+names.mapping$"Cleaned" <- 
+  stringr::str_replace( 
+    string = names.mapping$"Cleaned",
+    pattern = " [0-9]*TMS",
+    replacement = ""
+  )
+
+names.mapping$"Cleaned" <- 
+  stringr::str_replace( 
+    string = names.mapping$"Cleaned",
+    pattern = " MeOX",
+    replacement = ""
+  )
+
+tmp <- table( names.mapping$"Cleaned" )
+
+tmp <- names( which( tmp > 1 ) )
+
+if ( length( tmp ) > 0 ) {
+  
+  for ( i in 1:length( tmp ) ) {
+    
+    tmp.i <- which( names.mapping$"Cleaned" == tmp[ i ] )
+    
+    names.mapping[ tmp.i, "Cleaned" ] <- 
+      paste(
+        names.mapping[ tmp.i, "Cleaned" ], 
+        " (", 
+        1:length( tmp.i ), 
+        ")", 
+        sep = ""
+      )
+    
+  }
+  
+}
+
+```
+
+\newpage
+
+# Step 1: Cross-Sectional Analysis of All Metabolites
+
+## Albuminuria Groups
+
+### Crude Model
+
+```{r Groups-Crude-Test-4, echo=echo}
+
+design.test <- 
+  data.frame( 
+    data.w.healthy.control[ , 
+                            c( 
+                              "Group", 
+                              "Age", 
+                              "Gender", 
+                              "Hba1c_baseline", 
+                              "egfr", 
+                              "CALSBP", 
+                              "bmi", 
+                              "Smoking",
+                              "Statin",
+                              "log_Blood_TGA", 
+                              "Total_cholesterol"
+                            )
+                            ]
+  )
+
+tmp <- 
+  apply( 
+    X = !is.na( design.test ),
+    MAR = 1,
+    FUN = all
+  )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix( 
+    object = ~ Group,
+    data = design.test
+  )
+
+mFit <- 
+  limma::lmFit( 
+    object = data.test,
+    design = dm
+  )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X=dm, MAR=2, FUN=range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table of Model Coefficients
+
+```{r Group-Crude-Results-Table-4, echo = echo}
+
+results.group <- mEbFit
+
+for ( i in 2:ncol( mEbFit ) ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  table.result.group <- 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.group
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- 
+    signif( 
+      x = table.result.printed,
+      digits = 3
+    )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c( 
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                            )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+}
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r Groups-Test-4, echo=echo}
+
+design.test <- 
+  data.frame( 
+    data.w.healthy.control[ , 
+                            c( 
+                              "Group",
+                              "Age",
+                              "Gender", 
+                              "Hba1c_baseline",
+                              "egfr",
+                              "CALSBP",
+                              "bmi",
+                              "Smoking",
+                              "Statin",
+                              "log_Blood_TGA",
+                              "Total_cholesterol"
+                              )
+                            ]
+    )
+
+tmp <- 
+  apply(
+    X = !is.na( design.test ),
+    MAR = 1,
+    FUN = all
+  )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix( 
+    object= 
+      ~ Group + 
+      Age + 
+      Gender +
+      Hba1c_baseline + 
+      egfr + 
+      CALSBP + 
+      bmi + 
+      Smoking +
+      Statin +
+      log_Blood_TGA + 
+      Total_cholesterol,
+    data = design.test )
+
+mFit <- 
+  limma::lmFit(
+    object = data.test,
+    design = dm
+  )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r Group-Results-Table-4, echo = echo}
+
+results.group <- mEbFit
+
+# for ( i in 2:ncol( mEbFit ) ) {
+for ( i in 2:4 ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+
+  # print( name.effect )
+    
+  table.result.group <- 
+    limma::topTable( 
+      fit = mEbFit, 
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.group
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- 
+    signif( 
+      x = table.result.printed, 
+      digits = 3
+    )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c( 
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                            )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+}
+
+```
+
+\newpage
+
+## eGFR
+
+### Crude Model
+
+```{r eGFR-Crude-Test-4, echo=echo}
+
+design.test <- 
+  data.frame( 
+    data[ , 
+          c( 
+            "egfr",
+            "Age",
+            "Gender", 
+            "Hba1c_baseline",
+            "logUAER",
+            "CALSBP",
+            "bmi",
+            "Smoking",
+            "Statin",
+            "log_Blood_TGA",
+            "Total_cholesterol"
+          )
+          ]
+  )
+
+tmp <- 
+  apply( 
+    X = !is.na( design.test ), 
+    MAR = 1, 
+    FUN = all
+  )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix(
+    object = ~ egfr,
+    data = design.test
+  )
+
+mFit <- 
+  limma::lmFit(
+    object = data.test,
+    design = dm
+  )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r eGFR-Crude-Results-Table-4, echo = echo}
+
+results.egfr <- mEbFit
+
+for ( i in 2:ncol( mEbFit ) ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  # print( name.effect )
+  
+  table.result.egfr <- 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.egfr
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- 
+    signif( 
+      x = table.result.printed, 
+      digits = 3
+    )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c( 
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                          )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+}
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r eGFR-Test-4, echo = echo}
+
+design.test <- 
+  data.frame(
+    data[ , 
+          c(
+            "egfr",
+            "Age",
+            "Gender", 
+            "Hba1c_baseline",
+            "logUAER",
+            "CALSBP",
+            "bmi",
+            "Smoking",
+            "Statin",
+            "log_Blood_TGA",
+            "Total_cholesterol"
+          )
+          ]
+  )
+
+tmp <- 
+  apply( 
+    X = !is.na( design.test ),
+    MAR = 1,
+    FUN = all
+  )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix( 
+    object = 
+      ~ egfr + 
+      Age + 
+      Gender +
+      Hba1c_baseline + 
+      logUAER + 
+      CALSBP + 
+      bmi + 
+      Smoking +
+      Statin + 
+      log_Blood_TGA + 
+      Total_cholesterol,
+    data = design.test
+  )
+
+mFit <- 
+  limma::lmFit( 
+    object = data.test,
+    design = dm
+  )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r eGFR-Results-Table-4, echo = echo}
+
+results.egfr <- mEbFit
+
+for ( i in 2:ncol( mEbFit ) ) {
+# for ( i in 2:2 ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  # print( name.effect )
+  
+  table.result.egfr <- 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.egfr
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- 
+    signif( 
+      x = table.result.printed,
+      digits = 3
+    )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c( 
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                          )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+  print( sum( table.result.printed$"adj.P.Val" < 0.01 ) )
+  print( sum( table.result.printed$"adj.P.Val" < 0.05 ) )
+  print( sum( table.result.printed$"adj.P.Val" < 0.10 ) )
+  
+}
+
+```
+
+```{r Names-eGFR}
+
+names.egfr.metabolites <- 
+  rownames( 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = "egfr", 
+      confint = TRUE,
+      number = Inf,
+      adjust.method = "BH", 
+      p.value = 0.01
+    )
+  )
+
+names.egfr.clinical <- colnames( design.test )
+
+```
+
+\newpage
+
+### Technical-Adjusted Model
+
+```{r eGFR-Test-Tech, echo = echo}
+
+design.test <- 
+  data.frame( 
+    data[ , 
+          c( 
+            "egfr",
+            "Age",
+            "Gender", 
+            "Hba1c_baseline",
+            "logUAER",
+            "CALSBP",
+            "bmi",
+            "Smoking",
+            "Statin",
+            "log_Blood_TGA",
+            "Total_cholesterol",
+            "Batch.Manual",
+            "Run.Number"
+          )
+          ]
+  )
+
+tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data[ tmp, names.metabolites ] )
+
+tmp <- names( which( table( design.test$"Batch.Manual" ) > 2 ) )
+
+tmp <- ( design.test$"Batch.Manual" %in% tmp )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- data.test[ , tmp ]
+
+dm <- 
+  stats::model.matrix( 
+    object = 
+      ~ egfr + 
+      Age + 
+      Gender +
+      Hba1c_baseline + 
+      logUAER + 
+      CALSBP + 
+      bmi + 
+      Smoking +
+      Statin +
+      log_Blood_TGA + 
+      Total_cholesterol +
+      Batch.Manual * Run.Number,
+    data = design.test
+  )
+
+mFit <- limma::lmFit( object = data.test, design = dm )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r eGFR-Results-Table-Tech, echo = echo}
+
+results.egfr <- mEbFit
+
+# for ( i in 2:ncol( mEbFit ) ) {
+for ( i in 2:2 ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  # print( name.effect )
+  
+  table.result.egfr <- 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.egfr
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c(
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                          )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+  print( sum( table.result.printed$"adj.P.Val" < 0.01 ) )
+  print( sum( table.result.printed$"adj.P.Val" < 0.05 ) )
+  print( sum( table.result.printed$"adj.P.Val" < 0.10 ) )
+  
+}
+
+```
+
+
+\newpage
+
+
+## logUAER -- Continuous Albuminuria
+
+### Crude Model
+
+```{r UAER-Crude-Test-4, echo=echo}
+
+design.test <- 
+  data.frame( 
+    data[ , 
+          c( 
+            "egfr",
+            "Age",
+            "Gender", 
+            "Hba1c_baseline",
+            "logUAER",
+            "CALSBP",
+            "bmi",
+            "Smoking",
+            "Statin",
+            "log_Blood_TGA",
+            "Total_cholesterol"
+          )
+          ]
+  )
+
+tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix( 
+    object = ~ logUAER,
+    data = design.test
+  )
+
+mFit <- limma::lmFit( object = data.test, design = dm )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r UAER-Crude-Results-Table-4, echo = echo}
+
+results.uaer <- mEbFit
+
+for ( i in 2:ncol( mEbFit ) ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  table.result.uaer <- 
+    limma::topTable( 
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.uaer
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c(
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                          )
+                          ]
+  
+  print(
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+    )
+  )
+  
+}
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r UAER-Test-4, echo=echo}
+
+design.test <- 
+  data.frame( 
+    data[ , 
+          c(
+            "egfr",
+            "Age",
+            "Gender", 
+            "Hba1c_baseline",
+            "logUAER",
+            "CALSBP",
+            "bmi",
+            "Smoking",
+            "Statin",
+            "log_Blood_TGA", 
+            "Total_cholesterol"
+          )
+          ]
+  )
+
+tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
+
+design.test <- design.test[ tmp, ]
+design.test <- droplevels( design.test )
+
+data.test <- t( data[ tmp, names.metabolites ] )
+
+dm <- 
+  stats::model.matrix( 
+    object = 
+      ~ logUAER + 
+      Age + 
+      Gender +
+      Hba1c_baseline + 
+      egfr + 
+      CALSBP + 
+      bmi + 
+      Smoking +
+      Statin +
+      log_Blood_TGA + 
+      Total_cholesterol,
+    data = design.test
+  )
+
+mFit <- limma::lmFit( object = data.test, design = dm )
+
+mEbFit <- limma::eBayes( mFit )
+
+dim( dm )
+apply( X = dm, MAR = 2, FUN = range )
+
+tableone::CreateTableOne( data = design.test )
+
+```
+
+\newpage
+
+#### Table
+
+```{r UAER-Results-Table-4, echo = echo}
+
+results.uaer <- mEbFit
+
+# for ( i in 2:ncol( mEbFit ) ) {
+for ( i in 2:2 ) {
+
+  name.effect <- colnames( mEbFit$"coefficients" )[ i ]
+  
+  # print( name.effect )
+  
+  table.result.uaer <- 
+    limma::topTable(
+      fit = mEbFit,
+      coef = name.effect,
+      confint = TRUE, 
+      number = Inf,
+      adjust.method = "BH"
+    )
+  
+  table.result.printed <- table.result.uaer
+  
+  colnames( table.result.printed )[ colnames( table.result.printed )=="logFC" ] <- 
+    "Effect"
+  
+  table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+  table.result.printed$"Name" <- rownames( table.result.printed )
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub(
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+  
+  table.result.printed <- 
+    table.result.printed[ , 
+                          c( 
+                            "Name",
+                            "Effect",
+                            "CI.L",
+                            "CI.R",
+                            "AveExpr", 
+                            "P.Value",
+                            "adj.P.Val"
+                          )
+                          ]
+  
+  print( 
+    knitr::kable( 
+      x = table.result.printed,
+      row.names = FALSE,
+      caption = name.effect
+      )
+    )
+  
+}
+
+```
+
+
+
+
+\newpage
+
+
+
+
+# Step 2: Survival Analysis of Combined Renal Endpoint in Relation to Prioritized Metabolites from Step 1
+
+## Step 2A: Crude Model
+
+```{r Kidney-Surv-Crude-From-All, echo=echo, eval=TRUE}
+
+names.tested <- 
+  rownames( 
+    limma::topTable( 
+      fit = results.egfr, 
+      coef = "egfr",
+      number = Inf,
+      p = 0.05
+    )
+  )
+
+names.tested <-
+  c( 
+    names.tested,
+    rownames( 
+      limma::topTable( 
+        fit = results.egfr, 
+        coef = "logUAER",
+        number = Inf,
+        p = 0.05
+      )
+    )
+  )
+
+names.tested <- unique( names.tested )
+
+names.model <- NULL
+
+data.survival <- 
+  data[ , 
+        c(
+          names.model, 
+          colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+          names.tested
+        )
+        ]
+
+colnames( data.survival ) <- make.names( names = colnames( data.survival ) )
+
+data.survival$"censor_komb_nyre_endepunkt_p.reversed" <- 
+  factor( x = as.character( data.survival$"censor_komb_nyre_endepunkt_p" ), 
+          levels = c( 1, 0 ), 
+          labels = c( "eos/udvandring i profil" , "event" ) )
+
+data.survival$"censor_komb_nyre_endepunkt_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_komb_nyre_endepunkt_p.reversed" ) - 1
+
+names.tested <- make.names( names.tested )
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph( 
+      formula = 
+        as.formula( 
+          paste( "survival::Surv( time = t_komb_nyre_endepunkt_p, event = censor_komb_nyre_endepunkt_p.reversed.numeric ) ~",
+                 name.i
+          )
+        )
+      ,
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = 
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+### Table
+
+```{r Kidney-Surv-Crude-From-All-Table, echo = echo, eval=TRUE}
+
+table.result.printed <- result.kidney.crude <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- 
+  names.mapping[ rownames( table.result.printed ), "Original" ]
+
+table.result.printed <- 
+  table.result.printed[ , 
+                        c( 
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+  
+print(
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Crude survival model for combined renal endpoint."
+  )
+)
+
+```
+
+\newpage
+
+## Step 2B: Adjusted Model
+
+```{r Kidney-Surv-Adjusted-From-All, echo=echo, eval=TRUE}
+
+names.tested <- 
+  rownames( 
+    limma::topTable( 
+      fit = results.egfr, 
+      coef = "egfr",
+      number = Inf,
+      p = 0.05
+    )
+  )
+
+names.tested <-
+  c( 
+    names.tested,
+    rownames( 
+      limma::topTable(
+        fit = results.egfr, 
+        coef = "logUAER",
+        number = Inf,
+        p = 0.05
+      )
+    )
+  )
+
+names.tested <- unique( names.tested )
+
+names.model <-
+  c(
+    "logUAER",
+    "egfr",
+    "Age", "Gender",
+    "Hba1c_baseline",
+    "CALSBP",
+    "bmi",
+    "Smoking",
+    "Statin",
+    "log_Blood_TGA",
+    "Total_cholesterol"
+  )
+
+data.survival <- 
+  data[ , 
+        c( 
+          names.model, 
+          colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+          names.tested
+        )
+        ]
+
+colnames( data.survival ) <- make.names( names = colnames( data.survival ) )
+
+data.survival$"censor_komb_nyre_endepunkt_p.reversed" <- 
+  factor( 
+    x = as.character( data.survival$"censor_komb_nyre_endepunkt_p" ), 
+    levels = c( 1, 0 ), 
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_komb_nyre_endepunkt_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_komb_nyre_endepunkt_p.reversed" ) - 1
+
+names.tested <- make.names( names.tested )
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph( 
+      formula = 
+        as.formula( 
+          paste( "survival::Surv( time = t_komb_nyre_endepunkt_p, event = censor_komb_nyre_endepunkt_p.reversed.numeric ) ~",
+                 name.i,
+                 "+ logUAER",
+                 "+ egfr",
+                 "+ Age",
+                 "+ Gender",
+                 "+ Hba1c_baseline",
+                 "+ CALSBP",
+                 "+ bmi",
+                 "+ Smoking",
+                 "+ Statin",
+                 "+ log_Blood_TGA",
+                 "+ Total_cholesterol"
+          )
+        )
+      ,
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = 
+          c( 
+            length( names.tested ), 
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <-
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <-
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+### Table
+
+```{r Kidney-Surv-Adjusted-From-All-Table, echo = echo, eval=TRUE}
+
+table.result.printed <- result.kidney.adjusted <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- 
+  names.mapping[ rownames( table.result.printed ), "Original" ]
+
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+  
+print( 
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Adjusted survival model for combined renal endpoint."
+  )
+)
+
+```
+
+\newpage
+
+
+\newpage
+
+
+## Combined Forest Plot from Crude and Adjusted Models
+
+```{r Kidney-Surv-Combined-From-All, echo = echo}
+
+tmp <- result.kidney.crude
+
+tmp$"Name" <- names.mapping[ rownames( tmp ), "Cleaned" ]
+
+tmp$"Model" <- rep( x = "Crude", times = nrow( tmp ) )
+
+data.plot <- tmp
+
+tmp <- result.kidney.adjusted
+
+tmp$"Name" <- names.mapping[ rownames( tmp ), "Cleaned" ]
+
+tmp$"Model" <- rep( x = "Adjusted", times = nrow( tmp ) )
+
+data.plot <- rbind( data.plot, tmp )
+
+data.plot$"Model" <- 
+  factor( 
+    x = data.plot$"Model",
+    levels = c( "Crude", "Adjusted" )
+  )
+
+data.plot$"Name" <- 
+  factor(
+    x = data.plot$"Name",
+    levels = sort( x = unique( data.plot$"Name" ), decreasing = TRUE )
+  )
+
+data.plot$"Significance" <- rep( x = "None", times = nrow( data.plot ) )
+
+data.plot[ data.plot$"p.adj" < 0.05, "Significance" ] <- 
+  "Multiple-testing-corrected p < 0.05"
+
+data.plot$"Event" <- 
+  rep( 
+    x = "Combined Renal Endpoint",
+    times = nrow( data.plot )
+  )
+
+colnames( data.plot )[ colnames( data.plot )=="exp(coef)"] <- "HR"
+
+colnames( data.plot ) <- make.names( colnames( data.plot ) )
+
+```
+
+```{r Kidney-Surv-Combined-From-All-Forest, fig.height=6, dpi=600, echo = echo}
+
+plot <- 
+  ggplot2::ggplot( 
+    data = data.plot, 
+    mapping = 
+      ggplot2::aes( 
+        x = Name,
+        y = HR, 
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = Event ~ Model ) +
+  ggplot2::scale_colour_manual( values=c( "red", "black" ) ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ) ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+
+
+
+\newpage
+
+
+
+# Step 3: Survival Analysis of Specific Renal Endpoints in Relation to Prioritized Metabolites from Step 2A
+
+## Step 3A: Albuminuria Group Progression
+
+### Crude Model
+
+```{r Albuminuria-Group-Surv-Crude-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- NULL
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c( 
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 )
+                 ]
+
+data.survival$"censor_alb_prog.reversed" <- data.survival$"censor_alb_prog_a"
+
+data.survival$"censor_alb_prog.reversed" <-
+  factor( 
+    x = as.character( data.survival$"censor_alb_prog.reversed" ),
+    levels = c( 2, 0 ),
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_alb_prog.reversed.numeric" <-
+  as.numeric( data.survival$"censor_alb_prog.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph( 
+      formula = 
+        as.formula( 
+          paste( 
+            "survival::Surv( time = t_alb_prog_a, event = censor_alb_prog.reversed.numeric ) ~",
+            name.i
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = 
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame( 
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r Albuminuria-Group-Surv-Crude-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.albuminuria.crude <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ),
+    ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+  
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+  
+print(
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Survival model for albuminuria group progression."
+  )
+)
+
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r Albuminuria-Group-Surv-Crude-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( result.survival, 
+              Name = rownames( result.survival ) )
+
+# result.survival <- 
+#   data.frame( result.survival, 
+#               Name = names.mapping[ rownames( result.survival ), 3 ] )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r Albuminuria-Group-Surv-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- 
+  c( 
+    "logUAER",
+    "egfr",
+    "Age",
+    "Gender",
+    "Hba1c_baseline",
+    "CALSBP",
+    "bmi",
+    "Smoking",
+    "Statin", 
+    "log_Blood_TGA",
+    "Total_cholesterol"
+  )
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE, 
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 )
+                 ]
+
+data.survival$"censor_alb_prog.reversed" <- data.survival$"censor_alb_prog_a"
+
+data.survival$"censor_alb_prog.reversed" <-
+  factor( 
+    x = as.character( data.survival$"censor_alb_prog.reversed" ),
+    levels = c( 2, 0 ),
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_alb_prog.reversed.numeric" <-
+  as.numeric( data.survival$"censor_alb_prog.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph( 
+      formula = 
+        as.formula( 
+          paste( 
+            "survival::Surv( time = t_alb_prog_a, event = censor_alb_prog.reversed.numeric ) ~",
+            name.i,
+            "+ logUAER",
+            "+ egfr",
+            "+ Age",
+            "+ Gender",
+            "+ Hba1c_baseline",
+            "+ CALSBP",
+            "+ bmi",
+            "+ Smoking",
+            "+ Statin",
+            "+ log_Blood_TGA",
+            "+ Total_cholesterol"
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim =
+          c( 
+            length( names.tested ), 
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim=c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    result.survival.CI, 
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r Albuminuria-Group-Surv-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.albuminuria.adjusted <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+
+table.result.printed <- 
+  table.result.printed[ ,
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+  
+print(
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Survival model for albuminuria group progression."
+  )
+)
+  
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r Albuminuria-Group-Surv-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( result.survival, 
+              Name = rownames( result.survival ) )
+
+# result.survival <- 
+#   data.frame( result.survival, 
+#               Name = names.mapping[ rownames( result.survival ), 3 ] )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+\newpage
+
+### Combined Forest Plot from Crude and Adjusted Models
+
+```{r Albuminuria-Group-Surv-Combined-From-All, echo = echo}
+
+tmp <- result.4.albuminuria.crude
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Crude", times = nrow( tmp ) )
+
+data.plot <- tmp
+
+tmp <- result.4.albuminuria.adjusted
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Adjusted", times = nrow( tmp ) )
+
+data.plot <- rbind( data.plot, tmp )
+
+data.plot$"Model" <- 
+  factor( 
+    x = data.plot$"Model",
+    levels = c( "Crude", "Adjusted" )
+  )
+
+data.plot$"Name" <-
+  factor( 
+    x = data.plot$"Name",
+    levels = sort( x = unique( data.plot$"Name" ), decreasing = TRUE )
+  )
+
+data.plot$"Significance" <- rep( x = "None", times = nrow( data.plot ) )
+
+data.plot[ data.plot$"p.adj" < 0.05, "Significance" ] <- 
+  "Multiple-testing-corrected p < 0.05"
+
+data.plot$"Event" <- 
+  rep( 
+    x = "Albuminuria\nGroup\nProgression",
+    times = nrow( data.plot )
+  )
+
+colnames( data.plot )[ colnames( data.plot ) == "exp(coef)"] <- "HR"
+
+colnames( data.plot ) <- make.names( colnames( data.plot ) )
+
+forest.step4.compilation <- data.plot
+
+```
+
+```{r Albuminuria-Group-Surv-Combined-From-All-Forest, fig.height=4, dpi=600, echo = echo}
+
+plot <-
+  ggplot2::ggplot( data = data.plot,
+                   mapping = ggplot2::aes( x = Name, y = HR,
+                                           ymin = lower..95, ymax = upper..95,
+                                           colour = Significance ) ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets= ~ Model ) +
+  ggplot2::scale_colour_manual( values=c( "red", "black" ) ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ) ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+
+\newpage
+
+
+## Step 3B: All-Cause Mortality
+
+### Crude Model
+
+```{r Mortality-Surv-Crude-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- NULL
+
+data.survival <- 
+  data.frame( 
+    data,
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 )
+                 ]
+
+data.survival$"censor_doed_profil.reversed" <- 
+  factor( 
+    x = as.character( data.survival$"censor_doed_profil" ), 
+    levels = c( 1, 0 ), 
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_doed_profil.reversed.numeric" <-
+  as.numeric( data.survival$"censor_doed_profil.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph(
+      formula =
+        as.formula(
+          paste(
+            "survival::Surv( time = t_doed_profil, event = censor_doed_profil.reversed.numeric ) ~",
+            name.i
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = 
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame( 
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r Mortality-Surv-Crude-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.mortality.crude <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order(
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+  
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+  
+print(
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Crude survival model for all-cause mortality."
+  )
+)
+
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r Mortality-Surv-Crude-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+# plot <- 
+#   ggplot2::ggplot( data = result.survival, 
+#                    mapping = ggplot2::aes( x = Name, y = exp.coef., 
+#                                            ymin = lower..95, ymax = upper..95 ) ) +
+#   ggplot2::geom_pointrange() + 
+#   ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+#   ggplot2::coord_flip() +
+#   ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+#   ggplot2::xlab( label = "" )
+# 
+# print( plot )
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r Mortality-Surv-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- 
+  c( 
+    "logUAER",
+    "egfr",
+    "Age",
+    "Gender",
+    "Hba1c_baseline",
+    "CALSBP",
+    "bmi",
+    "Smoking",
+    "Statin",
+    "log_Blood_TGA",
+    "Total_cholesterol"
+  )
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c( names.model, 
+                    colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                    names.tested
+                 )
+                 ]
+
+data.survival$"censor_doed_profil.reversed" <- 
+  factor( 
+    x = as.character( data.survival$"censor_doed_profil" ), 
+    levels = c( 1, 0 ), 
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_doed_profil.reversed.numeric" <-
+  as.numeric( data.survival$"censor_doed_profil.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph( 
+      formula = 
+        as.formula(
+          paste( "survival::Surv( time = t_doed_profil, event = censor_doed_profil.reversed.numeric ) ~",
+                 name.i,
+                 "+ logUAER",
+                 "+ egfr",
+                 "+ Age",
+                 "+ Gender",
+                 "+ Hba1c_baseline",
+                 "+ CALSBP",
+                 "+ bmi",
+                 "+ Smoking",
+                 "+ Statin",
+                 "+ log_Blood_TGA",
+                 "+ Total_cholesterol"
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <-
+      array(
+        dim =
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    result.survival.CI, 
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r Mortality-Surv-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.mortality.adjusted <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order(
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        )
+                        ]
+
+print(
+  knitr::kable(
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Adjusted survival model for all-cause mortality."
+  )
+)
+
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r Mortality-Surv-Adjusted-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+\newpage
+
+### Combined Forest Plot from Crude and Adjusted Models
+
+```{r Mortality-Surv-Combined-From-All, echo = echo}
+
+tmp <- result.4.mortality.crude
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Crude", times = nrow( tmp ) )
+
+data.plot <- tmp
+
+tmp <- result.4.mortality.adjusted
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Adjusted", times = nrow( tmp ) )
+
+data.plot <- rbind( data.plot, tmp )
+
+data.plot$"Model" <- 
+  factor( 
+    x = data.plot$"Model",
+    levels = c( "Crude", "Adjusted" )
+  )
+
+data.plot$"Name" <-
+  factor(
+    x = data.plot$"Name",
+    levels = 
+      sort( 
+        x = unique( data.plot$"Name" ),
+        decreasing = TRUE
+      )
+  )
+
+data.plot$"Significance" <- rep( x = "None", times = nrow( data.plot ) )
+
+data.plot[ data.plot$"p.adj" < 0.05, "Significance" ] <- 
+  "Multiple-testing-corrected p < 0.05"
+
+data.plot$"Event" <- 
+  rep( x = "All-Cause Mortality", times = nrow( data.plot ) )
+
+colnames( data.plot )[ colnames( data.plot )=="exp(coef)"] <- "HR"
+
+colnames( data.plot ) <- make.names( colnames( data.plot ) )
+
+forest.step4.compilation <- rbind( forest.step4.compilation, data.plot )
+
+```
+
+```{r Mortality-Surv-Combined-From-All-Forest, fig.height=4, dpi=600, echo = echo}
+
+plot <-
+  ggplot2::ggplot( 
+    data = data.plot,
+    mapping = 
+      ggplot2::aes(
+        x = Name,
+        y = HR,
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = ~ Model ) +
+  ggplot2::scale_colour_manual( values=c( "red", "black" ) ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ) ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+
+\newpage
+
+
+
+## Step 3C: eGFR Decline > 30 %
+
+### Crude Model
+
+```{r GFR-Decline-Surv-Crude-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- NULL
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE, 
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 ) ]
+
+colnames( data.survival ) <- make.names( names=colnames( data.survival ) )
+
+data.survival$"censor_gfrfald30_p.reversed" <- data.survival$"censor_gfrfald30_p"
+
+data.survival$"censor_gfrfald30_p.reversed" <-
+  factor(
+    x = as.character( data.survival$"censor_gfrfald30_p.reversed" ),
+    levels = c( 2, 0 ),
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_gfrfald30_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_gfrfald30_p.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph(
+      formula =
+        as.formula(
+          paste(
+            "survival::Surv( time = t_gfrfald30_p, event = censor_gfrfald30_p.reversed.numeric ) ~",
+            name.i
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array(
+        dim =
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <-
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r GFR-Decline-Surv-Crude-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.egfr.crude <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order(
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        ) ]
+
+print(
+  knitr::kable( 
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Crude survival model for eGFR decline > 30 %"
+  )
+)
+
+```
+
+\newpage
+
+### Forest Plot
+
+```{r GFR-Decline-Surv-Crude-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame(
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+\newpage
+
+### Adjusted Model
+
+```{r GFR-Decline-Surv-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- 
+  c( 
+    "logUAER",
+    "egfr",
+    "Age",
+    "Gender",
+    "Hba1c_baseline",
+    "CALSBP",
+    "bmi",
+    "Smoking",
+    "Statin",
+    "log_Blood_TGA",
+    "Total_cholesterol"
+  )
+
+data.survival <- 
+  data.frame(
+    data,
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 )
+                 ]
+
+data.survival$"censor_gfrfald30_p.reversed" <- data.survival$"censor_gfrfald30_p"
+
+data.survival$"censor_gfrfald30_p.reversed" <-
+  factor( 
+    x = as.character( data.survival$"censor_gfrfald30_p.reversed" ),
+    levels = c( 2, 0 ),
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_gfrfald30_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_gfrfald30_p.reversed" ) - 1
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph(
+      formula =
+        as.formula(
+          paste(
+            "survival::Surv( time = t_gfrfald30_p, event = censor_gfrfald30_p.reversed.numeric ) ~",
+            name.i,
+            "+ logUAER",
+            "+ egfr",
+            "+ Age",
+            "+ Gender",
+            "+ Hba1c_baseline",
+            "+ CALSBP",
+            "+ bmi",
+            "+ Smoking",
+            "+ Statin",
+            "+ log_Blood_TGA",
+            "+ Total_cholesterol"
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = c(
+          length( names.tested ),
+          ncol( tmp$"coefficients" )
+        )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim=c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r GFR-Decline-Surv-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.egfr.adjusted <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        ) ]
+
+print(
+  knitr::kable(
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Adjusted survival model for eGFR decline > 30 %."
+  )
+)
+
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r GFR-Decline-Surv-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+\newpage
+
+### Combined Forest Plot from Crude and Adjusted Models
+
+```{r GFR-Decline-Surv-Combined-From-All, echo = echo}
+
+tmp <- result.4.egfr.crude
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Crude", times = nrow( tmp ) )
+
+data.plot <- tmp
+
+tmp <- result.4.egfr.adjusted
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Adjusted", times = nrow( tmp ) )
+
+data.plot <- rbind( data.plot, tmp )
+
+data.plot$"Model" <- 
+  factor( 
+    x = data.plot$"Model",
+    levels = c( "Crude", "Adjusted" )
+  )
+
+data.plot$"Name" <-
+  factor(
+    x = data.plot$"Name",
+    levels = sort( x = unique( data.plot$"Name" ), decreasing=TRUE )
+  )
+
+data.plot$"Significance" <- rep( x = "None", times = nrow( data.plot ) )
+
+data.plot[ data.plot$"p.adj" < 0.05, "Significance" ] <- 
+  "Multiple-testing-corrected p < 0.05"
+
+data.plot$"Event" <- 
+  rep( x = "eGFR Decline (> 30 %)", times = nrow( data.plot ) )
+
+colnames( data.plot )[ colnames( data.plot ) == "exp(coef)"] <- "HR"
+
+colnames( data.plot ) <- make.names( colnames( data.plot ) )
+
+forest.step4.compilation <- rbind( forest.step4.compilation, data.plot )
+
+```
+
+```{r GFR-Decline-Surv-Combined-From-All-Forest, fig.height=4, dpi=600, echo = echo}
+
+plot <-
+  ggplot2::ggplot( 
+    data = data.plot,
+    mapping = 
+      ggplot2::aes(
+        x = Name,
+        y = HR,
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = ~ Model ) +
+  ggplot2::scale_colour_manual( values = c( "red", "black" ) ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ) ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+
+\newpage
+
+
+## Step 3D: End-Stage Renal Disease
+
+### Crude Model
+
+```{r ESRD-Surv-Crude-From-Combined, echo=echo}
+
+names.tested <- 
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- NULL
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE, 
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ ,
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 )
+                 ]
+
+colnames( data.survival ) <- make.names( names=colnames( data.survival ) )
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph(
+      formula =
+        as.formula(
+          paste(
+            "survival::Surv( time = t_ESRD_profil, event = censor_ESRD_profil == 0 ) ~",
+            name.i
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = 
+          c(
+            length( names.tested ),
+            ncol( tmp$"coefficients" )
+          )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim = c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r ESRD-Surv-Crude-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.esrd.crude <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+  
+table.result.printed <- 
+  table.result.printed[ , 
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        ) ]
+  
+print(
+  knitr::kable(
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Crude survival model for end-stage renal disease."
+  )
+)
+
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r ESRD-Surv-Crude-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+
+\newpage
+
+
+### Adjusted Model
+
+```{r ESRD-Surv-From-Combined, echo=echo}
+
+names.tested <-
+  rownames( result.kidney.crude[ result.kidney.crude$"p.adj" < 0.05, ] )
+
+names.model <- 
+  c( 
+    "logUAER",
+    "egfr",
+    "Age",
+    "Gender",
+    "Hba1c_baseline",
+    "CALSBP",
+    "bmi",
+    "Smoking",
+    "Statin",
+    "log_Blood_TGA",
+    "Total_cholesterol"
+  )
+
+data.survival <- 
+  data.frame( 
+    data, 
+    stringsAsFactors = FALSE, 
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   names.tested
+                 ) ]
+
+for ( i in 1:length( names.tested ) ) {
+
+  name.i <- names.tested[ i ]
+  
+  model.survival <-
+    survival::coxph(
+      formula =
+        as.formula(
+          paste(
+            "survival::Surv( time = t_ESRD_profil, event = censor_ESRD_profil == 0 ) ~",
+            name.i,
+            "+ logUAER",
+            "+ egfr",
+            "+ Age",
+            "+ Gender",
+            "+ Hba1c_baseline",
+            "+ CALSBP",
+            "+ bmi",
+            "+ Smoking",
+            "+ Statin",
+            "+ log_Blood_TGA",
+            "+ Total_cholesterol"
+          )
+        ), 
+      data = data.survival
+    )
+
+  tmp <- summary( model.survival )
+  
+  if ( i == 1 ) {
+    
+    result.survival <- 
+      array( 
+        dim = c(
+          length( names.tested ),
+          ncol( tmp$"coefficients" )
+        )
+      )
+    
+    rownames( result.survival ) <- names.tested
+    colnames( result.survival ) <- colnames( tmp$"coefficients" )
+    
+    result.survival.CI <- array( dim=c( length( names.tested ), 2 ) )
+    rownames( result.survival.CI ) <- names.tested
+    colnames( result.survival.CI ) <- c( "lower .95", "upper .95" )
+    
+  }
+  
+  result.survival[ name.i, ] <- tmp$"coefficients"[ name.i, ]
+  
+  result.survival.CI[ name.i, ] <- 
+    tmp$"conf.int"[ name.i, c( "lower .95", "upper .95" ) ]
+  
+}
+
+result.survival <- 
+  data.frame(
+    result.survival,
+    result.survival.CI,
+    check.names = FALSE
+  )
+
+result.survival$"p.adj" <- p.adjust( p=result.survival$"Pr(>|z|)" )
+
+```
+
+\newpage
+
+#### Table
+
+```{r ESRD-Surv-From-All-Table, echo = echo}
+
+table.result.printed <- result.4.esrd.adjusted <- result.survival
+
+table.result.printed <- 
+  table.result.printed[ 
+    order( 
+      table.result.printed$"Pr(>|z|)", 
+      decreasing = FALSE
+    ), ]
+
+table.result.printed <- signif( x = table.result.printed, digits = 3 )
+  
+table.result.printed$"Name" <- rownames( table.result.printed )
+
+table.result.printed <- 
+  table.result.printed[ ,
+                        c(
+                          "Name",
+                          "exp(coef)",
+                          "lower .95",
+                          "upper .95",
+                          "Pr(>|z|)",
+                          "p.adj"
+                        ) ]
+  
+print(
+  knitr::kable(
+    x = table.result.printed,
+    row.names = FALSE,
+    caption = "Adjusted survival model for end-stage renal disease."
+  )
+)
+  
+```
+
+\newpage
+
+#### Forest Plot
+
+```{r ESRD-Surv-From-All-Forest, fig.width=10, fig.height=7, dpi=600, echo = echo}
+
+result.survival <- 
+  data.frame( 
+    result.survival, 
+    Name = rownames( result.survival )
+  )
+
+plot <- 
+  ggplot2::ggplot( data = result.survival, 
+                   mapping = ggplot2::aes( x = Name, y = exp.coef., 
+                                           ymin = lower..95, ymax = upper..95 ) ) +
+  ggplot2::geom_pointrange() + 
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::coord_flip() +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+
+```
+
+\newpage
+
+### Combined Forest Plot from Crude and Adjusted Models
+
+```{r ESRD-Surv-Combined-From-All, echo = echo}
+
+tmp <- result.4.esrd.crude
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Crude", times = nrow( tmp ) )
+
+data.plot <- tmp
+
+tmp <- result.4.esrd.adjusted
+
+tmp$"Name" <- rownames( tmp )
+
+tmp$"Model" <- rep( x = "Adjusted", times = nrow( tmp ) )
+
+data.plot <- rbind( data.plot, tmp )
+
+data.plot$"Model" <- 
+  factor(
+    x = data.plot$"Model",
+    levels = c( "Crude", "Adjusted" )
+  )
+
+data.plot$"Name" <-
+  factor( 
+    x = data.plot$"Name",
+    levels = sort( x = unique( data.plot$"Name" ), decreasing = TRUE )
+  )
+
+data.plot$"Significance" <- rep( x = "None", times = nrow( data.plot ) )
+
+data.plot[ data.plot$"p.adj" < 0.05, "Significance" ] <- "Multiple-testing-corrected p < 0.05"
+
+data.plot$"Event" <- 
+  rep( x = "End-Stage Renal Disease", times = nrow( data.plot ) )
+
+colnames( data.plot )[ colnames( data.plot ) == "exp(coef)"] <- "HR"
+
+colnames( data.plot ) <- make.names( colnames( data.plot ) )
+
+forest.step4.compilation <- rbind( forest.step4.compilation, data.plot )
+
+```
+
+```{r ESRD-Surv-Combined-From-All-Forest, fig.height=4, dpi=600, echo = echo}
+
+plot <-
+  ggplot2::ggplot( 
+    data = data.plot,
+    mapping = 
+      ggplot2::aes(
+        x = Name,
+        y = HR,
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = ~ Model ) +
+  ggplot2::scale_colour_manual( values = c( "red", "black" ) ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ) ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+
+\newpage
+
+
+
+## Compilation Forest Plot from Steps 3A-D
+
+```{r Surv-Compilation-Combined-From-All-Forest, fig.height=8, dpi=600, echo = echo}
+
+forest.step4.compilation$"Name.character" <- 
+  as.character( forest.step4.compilation$"Name" )
+
+forest.step4.compilation$"Name" <- 
+  names.mapping[ forest.step4.compilation$"Name.character", "Cleaned" ]
+ 
+forest.step4.compilation$"Name" <-
+  factor( 
+    x = forest.step4.compilation$"Name",
+    levels = 
+      sort( 
+        x = unique( x = forest.step4.compilation$"Name" ), 
+        decreasing = TRUE
+      )
+  )
+
+forest.step4.compilation$"Significance" <-
+  factor(
+    x = forest.step4.compilation$"Significance",
+    levels = c( "Multiple-testing-corrected p < 0.05", "None" )
+  )
+
+plot <-
+  ggplot2::ggplot(
+    data = forest.step4.compilation,
+    mapping =
+      ggplot2::aes(
+        x = Name,
+        y = HR,
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = Event ~ Model ) +
+  ggplot2::scale_colour_manual( values = c( "red", "black" ), drop = FALSE ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ), drop=FALSE ) +
+  ggplot2::scale_x_discrete( drop = FALSE ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+```{r Surv-Compilation-Combined-From-All-Forest-Log, fig.height=8, dpi=600, echo = echo}
+
+plot <- plot + ggplot2::scale_y_log10()
+
+print( plot )
+
+```
+
+```{r Surv-Compilation-Combined-From-3-Forest, fig.height=8, dpi=600, echo = echo}
+
+forest.step4.compilation <- 
+  forest.step4.compilation[ 
+    forest.step4.compilation$"Event" != "Albuminuria\nGroup\nProgression", ]
+
+plot <-
+  ggplot2::ggplot( 
+    data = forest.step4.compilation,
+    mapping = 
+      ggplot2::aes( 
+        x = Name,
+        y = HR,
+        ymin = lower..95,
+        ymax = upper..95,
+        colour = Significance
+      )
+  ) +
+  ggplot2::geom_pointrange() +
+  ggplot2::geom_hline( yintercept = 1, lty = "dashed" ) +
+  ggplot2::facet_grid( facets = Event ~ Model ) +
+  ggplot2::scale_colour_manual( values = c( "red", "black" ), drop = FALSE ) +
+  # ggplot2::scale_colour_manual( values=c( "red", "orange", "black" ), drop=FALSE ) +
+  ggplot2::scale_x_discrete( drop = FALSE ) +
+  ggplot2::coord_flip() +
+  ggplot2::theme( legend.position = "top" ) +
+  ggplot2::ylab( label = "Hazard Ratio (95 % CI)" ) +
+  ggplot2::xlab( label = "" )
+
+print( plot )
+
+```
+
+```{r Surv-Compilation-Combined-From-3-Forest-Log, fig.height=8, dpi=600, echo = echo}
+
+plot <- plot + ggplot2::scale_y_log10()
+
+print( plot )
+
+```
+
+
+
+\newpage
+
+
+
+# Step 4: Detailed Assessment of the Top-Metabolites in Relation to Outcomes
+
+## Step 4.1: First Top-Metabolite in Relation to eGFR Decline
+
+### Step 4.1A: Analysis of Full Cohort
+
+#### Survival Model with Details
+
+```{r RA-Mortality-Adjusted, dpi=600, echo=echo}
+
+names.model <-
+  data.frame( 
+    original = 
+      c( 
+        "Age", 
+        "bmi", 
+        "CALSBP", 
+        "Total_cholesterol", 
+        "egfr", 
+        "Hba1c_baseline",
+        "Statin", 
+        "Gender", 
+        "Smoking", 
+        "log_Blood_TGA", 
+        "logUAER"
+      ),
+    cleaned = 
+      c( 
+        "Age", 
+        "BMI", 
+        "BP_Systolic", 
+        "Cholesterol", 
+        "eGFR", 
+        "HbA1c",  
+        "Medication_Statins", 
+        "Sex", 
+        "Smoking", 
+        "TG_total_log", 
+        "UAER_log"
+      ),
+    stringsAsFactors = FALSE
+  )
+              
+names.model.cleaned <- names.model
+
+data.survival <-
+  data.frame(
+    data,
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model$original, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   "Ribonic.acid..72"
+                 ) ]
+
+colnames( data.survival )[ match( x = names.model$"original", table = colnames( data.survival ) ) ] <- 
+  names.model$"cleaned"
+
+colnames( data.survival ) <- make.names( names=colnames( data.survival ) )
+
+data.survival$"censor_gfrfald30_p.reversed" <- 
+  factor(
+    x = as.character( data.survival$"censor_gfrfald30_p" ), 
+    levels = c( 2, 0 ), 
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_gfrfald30_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_gfrfald30_p.reversed" ) - 1
+
+colnames( data.survival )[ colnames( data.survival ) == "Ribonic.acid..72" ] <-
+  "Ribonic_acid"
+
+model.survival <-
+  survival::coxph(
+    formula =
+      survival::Surv(
+        time = t_gfrfald30_p, 
+        event = censor_gfrfald30_p.reversed.numeric
+      )
+    ~ 
+      Ribonic_acid +
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival
+  )
+
+print( summary( model.survival ) )
+
+```
+
+\newpage
+
+##### Forest Plot with Clinical Variables
+
+```{r RA-Mortality-Adjusted-Forest, dpi=600, warning=FALSE, echo = echo}
+
+forest.RA <- 
+  survminer::ggforest( 
+    model = model.survival, 
+    main="Hazard Ratios for eGFR decline > 30 %"
+  )
+
+# print( forest.RA )
+
+```
+
+\newpage
+
+##### Diagnostics of the Survival Model
+
+```{r RA-Mortality-Adjusted-Diagnostics, dpi=600, echo = echo}
+
+
+survminer::ggsurvplot( 
+  fit = survival::survfit( formula = model.survival ), 
+  data = data.survival
+)
+
+survminer::ggcoxdiagnostics(
+  fit = model.survival, 
+  type = "schoenfeld", 
+  ox.scale = "time"
+)
+
+```
+
+\newpage
+
+##### Kaplan-Maier Curve with Median Cutpoint
+
+```{r RA-Mortality-Kaplan-Maier, fig.height=6, fig.width=7, dpi=600, echo=echo}
+
+data.km <- data.survival
+
+data.km$"Ribonic_acid" <-
+  cut( 
+    x = data.km$"Ribonic_acid",
+    breaks = c( -Inf, median( data.km$"Ribonic_acid", na.rm=TRUE ), Inf ),
+    labels = c( " <50%", " >50%" )
+  )
+
+data.km$"Ribonic_acid" <- relevel( x = data.km$"Ribonic_acid", ref = " >50%" )
+
+model.km <- 
+  survival::survfit(
+    survival::Surv(
+      time = t_gfrfald30_p, 
+      event = censor_gfrfald30_p.reversed.numeric
+    )
+    ~ 
+      Ribonic_acid, 
+    data = data.km
+  )
+
+plot <-
+  survminer::ggsurvplot( 
+    fit = model.km, 
+    data = data.km, 
+    ggtheme = ggplot2::theme_minimal(),
+    palette = "Set1",
+    risk.table = TRUE, 
+    cumevents = TRUE,
+    pval = FALSE,
+    risk.table.height = 0.15, 
+    cumevents.height = 0.15,
+    conf.int = TRUE
+  )
+
+plot$"table" <- plot$"table" + survminer::theme_cleantable()
+plot$"cumevents" <- plot$"cumevents" + survminer::theme_cleantable()
+
+print( plot )
+
+plot.km.Ribonic.acid <- plot
+
+```
+
+\newpage
+
+### Step 4.1B: Analysis of a Blood Pressure, HbA1c and logUAER-Matched Subcohort
+
+```{r RA-Matched-Subset, echo=echo}
+
+idx.case <- 
+  which( 
+    data.survival$"censor_gfrfald30_p.reversed" == "event" &
+      apply( 
+        X = !is.na( 
+          data.survival[ , 
+                         c(
+                           "Ribonic_acid", 
+                           "censor_gfrfald30_p.reversed", 
+                           names.model$"cleaned"
+                         )
+                         ]
+        ), 
+        MAR = 1,
+        FUN = all
+      )
+  )
+
+idx.matched.control <- NULL
+
+idx.pool <- 
+  which(
+    data.survival$"censor_gfrfald30_p.reversed" == "eos/udvandring i profil" &
+      apply(
+        X = !is.na(
+          data.survival[ ,
+                         c(
+                           "Ribonic_acid", 
+                           "censor_gfrfald30_p.reversed", 
+                           names.model$"cleaned"
+                         )
+                         ]
+        ), 
+        MAR = 1,
+        FUN = all
+      )
+  )
+
+names.matching.variables <- c( "BP_Systolic", "HbA1c", "UAER_log" )
+
+S <- 
+  cov(
+    x = data.survival[ idx.pool, names.matching.variables ],
+    use = "pairwise.complete.obs"
+  )
+
+tmp <- idx.pool
+  
+for ( i in 1:length( idx.case ) ) {
+  
+  tmp2 <- 
+    stats::mahalanobis( 
+      x = data.survival[ tmp, names.matching.variables ], 
+      center = unlist( data.survival[ idx.case[ i ], names.matching.variables ] ),
+      cov = S,
+      inverted = FALSE
+    )
+  
+  tmp2 <- which.min( tmp2 )
+  
+  idx.matched.control <- c( idx.matched.control, tmp[ tmp2 ] )
+  
+  tmp <- tmp[ -tmp2 ]
+  
+}
+
+ggplot2::qplot( 
+  x = data.survival[ idx.case, "BP_Systolic"], 
+  y = data.survival[ idx.matched.control, "BP_Systolic" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+ggplot2::qplot(
+  x = data.survival[ idx.case, "HbA1c"], 
+  y = data.survival[ idx.matched.control, "HbA1c" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+ggplot2::qplot(
+  x = data.survival[ idx.case, "UAER_log"], 
+  y = data.survival[ idx.matched.control, "UAER_log" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+t.test( 
+  x = data.survival[ idx.case, "BP_Systolic" ],
+  y = data.survival[ idx.matched.control, "BP_Systolic" ],
+  paired = TRUE
+)
+
+t.test(
+  x = data.survival[ idx.case, "HbA1c" ],
+  y = data.survival[ idx.matched.control, "HbA1c" ],
+  paired = TRUE
+)
+
+t.test( 
+  x = data.survival[ idx.case, "UAER_log" ],
+  y = data.survival[ idx.matched.control, "UAER_log" ],
+  paired = TRUE
+)
+
+data.survival.stratified <- data.survival[ c( idx.case, idx.matched.control ), ]
+
+summary(
+  glm(
+    formula =
+      censor_gfrfald30_p.reversed.numeric ~ 
+      Ribonic_acid + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+)
+
+summary(
+  lm(
+    formula =
+      Ribonic_acid ~ 
+      censor_gfrfald30_p.reversed.numeric + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+)
+
+```
+
+#### Survival Model with Details
+
+```{r RA-Matched-Mortality-Adjusted, dpi=600, echo = echo}
+
+model.survival <-
+  survival::coxph(
+    formula =
+      survival::Surv(
+        time = t_gfrfald30_p, 
+        event = censor_gfrfald30_p.reversed.numeric
+      ) 
+    ~             
+      Ribonic_acid +
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+
+print( summary( model.survival ) )
+
+```
+
+\newpage
+
+##### Forest Plot with Clinical Variables
+
+```{r RA-Matched-Mortality-Adjusted-Forest, dpi=600, warning=FALSE, echo = echo}
+
+forest.RA <-
+  survminer::ggforest( 
+    model = model.survival,
+    main = "Hazard Ratios for eGFR decline > 30 %"
+  )
+
+# print( forest.RA )
+
+```
+
+\newpage
+
+##### Diagnostics of the Survival Model
+
+```{r RA-Matched-Mortality-Adjusted-Diagnostics, dpi=600, echo = echo}
+
+survminer::ggsurvplot(
+  fit = survival::survfit( formula = model.survival ), 
+  data = data.survival.stratified
+)
+
+survminer::ggcoxdiagnostics(
+  fit = model.survival, 
+  type = "schoenfeld", 
+  ox.scale = "time"
+)
+
+```
+
+\newpage
+
+##### Kaplan-Maier Curve with Median Cutpoint
+
+```{r RA-Matched-Mortality-Kaplan-Maier, fig.height=6, fig.width=7, dpi=600, echo = echo}
+
+data.km <- data.survival.stratified
+
+data.km$"Ribonic_acid" <-
+  cut(
+    x = data.km$"Ribonic_acid",
+    breaks = c( -Inf, median( x = data.km$"Ribonic_acid", na.rm = TRUE ), Inf ),
+    labels = c( " <50%", " >50%" )
+  )
+
+data.km$"Ribonic_acid" <- relevel( x = data.km$"Ribonic_acid", ref = " >50%" )
+
+model.km <-
+  survival::survfit(
+    survival::Surv(
+      time = t_gfrfald30_p,
+      event = censor_gfrfald30_p.reversed.numeric
+      ) 
+    ~
+      Ribonic_acid,
+    data = data.km
+  )
+
+plot <-
+  survminer::ggsurvplot( 
+    fit = model.km, 
+    data = data.km, 
+    ggtheme = ggplot2::theme_minimal(),
+    palette = "Set1",
+    risk.table = TRUE, 
+    cumevents = TRUE,
+    pval = FALSE,
+    risk.table.height = 0.15, 
+    cumevents.height = 0.15,
+    conf.int = TRUE
+  )
+
+plot$"table" <- plot$"table" + survminer::theme_cleantable()
+plot$"cumevents" <- plot$"cumevents" + survminer::theme_cleantable()
+
+km.RA <- plot
+
+print( plot )
+
+```
+
+\newpage
+
+##### Boxplots
+
+```{r Boxplots-RA, fig.width=4, dpi=600, warning=FALSE, echo = echo}
+
+data.plot <- data.survival.stratified
+
+data.plot$"Outcome" <- 
+  factor( 
+    x = data.plot$"censor_gfrfald30_p", 
+    levels = c( "2", "0" ), 
+    labels = c( "Censored", "eGFR Decline (> 30 %)" )
+  )
+
+ggplot2::ggplot(
+  data = data.plot, 
+  mapping =
+    ggplot2::aes(
+      x = Outcome, 
+      y = Ribonic_acid
+    )
+) +
+  ggplot2::geom_violin( draw_quantiles = c( 0.25, 0.50, 0.75 ) ) + 
+  ggplot2::geom_jitter(
+    width = 0.1,
+    fill = "black",
+    stroke = 0,
+    shape = 16,
+    size = 2,
+    alpha = 0.25
+  ) +
+  ggplot2::ylab( label = "Ribonic Acid" ) +
+  ggplot2::xlab( label = "Outcome" )
+
+data.plot$"Gender" <- 
+  factor(
+    x = data.plot$"Sex", 
+    levels = c( 0, 1 ), 
+    labels = c( "Female", "Male" )
+  )
+
+data.plot$"Outcome.and.Gender" <- 
+  base::interaction( data.plot$"Outcome", data.plot$"Gender" )
+
+levels( data.plot$"Outcome.and.Gender" ) <- 
+  stringr::str_replace(
+    string = levels( data.plot$"Outcome.and.Gender" ), 
+    pattern = "\\.",
+    replacement = "\n"
+  )
+
+ggplot2::ggplot(
+  data = data.plot,
+  mapping =
+    ggplot2::aes(
+      x = Outcome.and.Gender, 
+      y = Ribonic_acid,
+      size = Age, 
+      color = Gender
+    )
+) +
+  ggplot2::geom_violin( draw_quantiles = c( 0.25, 0.50, 0.75 ) ) + 
+  ggplot2::geom_jitter(
+    width = 0.1,
+    stroke = 0,
+    shape = 16,
+    alpha = 0.25
+  ) +
+  ggplot2::scale_color_brewer( palette = "Dark2", direction = -1 ) +
+  ggplot2::ylab( label = "Ribonic Acid" ) +
+  ggplot2::xlab( label = "Outcome by Gender" ) +
+  ggplot2::theme( legend.position = "top" )
+
+```
+
+
+\newpage
+
+
+## Step 4.2: Second Top-Metabolite in Relation to eGFR Decline (> 30 %)
+
+### Step 4.2A: Analysis of Full Cohort
+
+#### Survival Model with Details
+
+```{r Myo-I-Mortality-Adjusted, dpi=600, echo=echo}
+
+names.model <-
+  data.frame( 
+    original =
+      c(
+        "Age", 
+        "bmi", 
+        "CALSBP", 
+        "Total_cholesterol", 
+        "egfr", 
+        "Hba1c_baseline",
+        "Statin", 
+        "Gender", 
+        "Smoking", 
+        "log_Blood_TGA", 
+        "logUAER"
+      ),
+    cleaned =
+      c(
+        "Age", 
+        "BMI", 
+        "BP_Systolic", 
+        "Cholesterol", 
+        "eGFR", 
+        "HbA1c", 
+        "Medication_Statins", 
+        "Sex", 
+        "Smoking", 
+        "TG_total_log", 
+        "UAER_log"
+      ),
+    stringsAsFactors = FALSE
+  )
+              
+names.model.cleaned <- names.model
+
+data.survival <-
+  data.frame(
+    data,
+    stringsAsFactors = FALSE,
+    check.names = TRUE
+  )
+
+data.survival <- 
+  data.survival[ , 
+                 c(
+                   names.model$original, 
+                   colnames( data.follow.up )[ colnames( data.follow.up ) != "id_profil" ], 
+                   "Myo.inositol.6TMS..1"
+                 ) ]
+
+colnames( data.survival )[ match( x = names.model$"original", table = colnames( data.survival ) ) ] <-
+  names.model$"cleaned"
+
+colnames( data.survival ) <- make.names( names = colnames( data.survival ) )
+
+data.survival$"censor_gfrfald30_p.reversed" <- 
+  factor(
+    x = as.character( data.survival$"censor_gfrfald30_p" ), 
+    levels = c( 2, 0 ), 
+    labels = c( "eos/udvandring i profil" , "event" )
+  )
+
+data.survival$"censor_gfrfald30_p.reversed.numeric" <-
+  as.numeric( data.survival$"censor_gfrfald30_p.reversed" ) - 1
+
+colnames( data.survival )[ colnames( data.survival ) == "Myo.inositol.6TMS..1" ] <-
+  "Myo_Inositol"
+
+model.survival <-
+  survival::coxph(
+    formula =
+      survival::Surv(
+        time = t_gfrfald30_p, 
+        event = censor_gfrfald30_p.reversed.numeric
+      )
+    ~                  
+      Myo_Inositol +
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival
+  )
+
+print( summary( model.survival ) )
+
+```
+
+\newpage
+
+##### Forest Plot with Clinical Variables
+
+```{r Myo-I-Mortality-Adjusted-Forest, dpi=600, warning=FALSE, echo = echo}
+
+forest.MyoI <- 
+  survminer::ggforest(
+    model = model.survival, 
+    main = "Hazard Ratios for eFRR decline (> 30 %)"
+  )
+
+# print( forest.MyoI )
+
+```
+
+\newpage
+
+##### Diagnostics of the Survival Model
+
+```{r Myo-I-Mortality-Adjusted-Diagnostics, dpi=600, echo = echo}
+
+
+survminer::ggsurvplot(
+  fit = survival::survfit( formula = model.survival ), 
+  data = data.survival
+)
+
+survminer::ggcoxdiagnostics(
+  fit = model.survival, 
+  type = "schoenfeld", 
+  ox.scale = "time"
+)
+
+```
+
+\newpage
+
+##### Kaplan-Maier Curve with Median Cutpoint
+
+```{r Myo-I-Mortality-Kaplan-Maier, fig.height=6, fig.width=7, dpi=600, echo=echo}
+
+data.km <- data.survival
+
+data.km$"Myo_Inositol" <-
+  cut(
+    x = data.km$"Myo_Inositol",
+    breaks = c( -Inf, median( x = data.km$"Myo_Inositol", na.rm = TRUE ), Inf ),
+    labels = c( " <50%", " >50%" )
+  )
+
+data.km$"Myo_Inositol" <- relevel( x = data.km$"Myo_Inositol", ref = " >50%" )
+
+model.km <- 
+  survival::survfit(
+    survival::Surv(
+      time = t_gfrfald30_p, 
+      event = censor_gfrfald30_p.reversed.numeric
+    ) 
+    ~ 
+      Myo_Inositol, 
+    data = data.km
+  )
+
+plot <-
+  survminer::ggsurvplot(
+    fit = model.km, 
+    data = data.km, 
+    ggtheme = ggplot2::theme_minimal(),
+    palette = "Set1",
+    risk.table = TRUE, 
+    cumevents = TRUE,
+    pval = FALSE,
+    risk.table.height = 0.15, 
+    cumevents.height = 0.15,
+    conf.int = TRUE
+  )
+
+plot$"table" <- plot$"table" + survminer::theme_cleantable()
+plot$"cumevents" <- plot$"cumevents" + survminer::theme_cleantable()
+
+print( plot )
+
+plot.km.Myo.Inositsol <- plot
+
+```
+
+\newpage
+
+#### Other Model Fits
+
+```{r Myo-I-Other-Models, echo = echo}
+
+model.km <- 
+  survival::coxph(
+    survival::Surv(
+      time = t_gfrfald30_p, 
+      event = censor_gfrfald30_p.reversed.numeric
+    ) 
+    ~ 
+      Myo_Inositol, 
+    data = data.km
+  )
+
+print( summary( model.km ) )
+
+summary( 
+  glm(
+    formula =
+      censor_gfrfald30_p.reversed.numeric ~ 
+      Myo_Inositol + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival
+  )
+)
+
+summary(
+  lm(
+    formula =
+      Myo_Inositol ~ 
+      censor_gfrfald30_p.reversed.numeric + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival
+  )
+)
+
+```
+
+
+\newpage
+
+
+### Step 4.1B: Analysis of a Blood Pressure, HbA1c and logUAER-Matched Subcohort
+
+```{r Myo-I-Matched-Subset, echo=echo}
+
+idx.case <- 
+  which(
+    data.survival$"censor_gfrfald30_p.reversed" == "event" &
+      apply(
+        X = 
+          !is.na(
+            data.survival[ ,
+                           c(
+                             "Myo_Inositol", 
+                             "censor_gfrfald30_p.reversed", 
+                             names.model$"cleaned"
+                           )
+                           ]
+          ), 
+        MAR = 1,
+        FUN = all
+      )
+  )
+
+idx.matched.control <- NULL
+
+idx.pool <- 
+  which(
+    data.survival$"censor_gfrfald30_p.reversed" == "eos/udvandring i profil" &
+      apply(
+        X = 
+          !is.na(
+            data.survival[ , 
+                           c(
+                             "Myo_Inositol", 
+                             "censor_gfrfald30_p.reversed", 
+                             names.model$"cleaned"
+                           )
+                           ]
+          ), 
+        MAR = 1,
+        FUN = all
+      )
+  )
+
+names.matching.variables <- c( "BP_Systolic", "HbA1c", "UAER_log" )
+
+S <-
+  cov(
+    x = data.survival[ idx.pool, names.matching.variables ],
+    use = "pairwise.complete.obs"
+  )
+
+tmp <- idx.pool
+  
+for ( i in 1:length( idx.case ) ) {
+
+  tmp2 <- 
+    stats::mahalanobis(
+      x = data.survival[ tmp, names.matching.variables ], 
+      center = unlist( data.survival[ idx.case[ i ], names.matching.variables ] ),
+      cov = S,
+      inverted = FALSE
+    )
+  
+  tmp2 <- which.min( tmp2 )
+  
+  idx.matched.control <- c( idx.matched.control, tmp[ tmp2 ] )
+  
+  tmp <- tmp[ -tmp2 ]
+  
+}
+
+ggplot2::qplot(
+  x = data.survival[ idx.case, "BP_Systolic"], 
+  y = data.survival[ idx.matched.control, "BP_Systolic" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+ggplot2::qplot(
+  x = data.survival[ idx.case, "HbA1c"], 
+  y = data.survival[ idx.matched.control, "HbA1c" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+ggplot2::qplot(
+  x = data.survival[ idx.case, "UAER_log"], 
+  y = data.survival[ idx.matched.control, "UAER_log" ], 
+  color = data.survival[ idx.case, "Sex" ]
+)
+
+t.test( 
+  x = data.survival[ idx.case, "BP_Systolic" ],
+  y = data.survival[ idx.matched.control, "BP_Systolic" ],
+  paired = TRUE
+)
+
+t.test(
+  x = data.survival[ idx.case, "HbA1c" ],
+  y = data.survival[ idx.matched.control, "HbA1c" ],
+  paired = TRUE
+)
+
+t.test(
+  x = data.survival[ idx.case, "UAER_log" ],
+  y = data.survival[ idx.matched.control, "UAER_log" ],
+  paired = TRUE
+)
+
+data.survival.stratified <-
+  data.survival[ c( idx.case, idx.matched.control ), ]
+
+summary(
+  glm(
+    formula =
+      censor_gfrfald30_p.reversed.numeric ~ 
+      Myo_Inositol + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+)
+
+summary( 
+  lm( 
+    formula = 
+      Myo_Inositol ~ 
+      censor_gfrfald30_p.reversed.numeric + 
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+)
+
+```
+
+ \newpage
+
+#### Survival Model with Details
+
+```{r Myo-I-Matched-Mortality-Adjusted, dpi=600, echo = echo}
+
+model.survival <-
+  survival::coxph( 
+    formula =
+      survival::Surv(
+        time = t_gfrfald30_p, 
+        event = censor_gfrfald30_p.reversed.numeric
+      ) 
+    ~ 
+      Myo_Inositol +
+      Age +
+      BMI + 
+      BP_Systolic + 
+      Cholesterol + 
+      eGFR + 
+      HbA1c +
+      Medication_Statins +
+      Sex +  
+      Smoking + 
+      TG_total_log +
+      UAER_log, 
+    data = data.survival.stratified
+  )
+
+print( summary( model.survival ) )
+
+```
+
+\newpage
+
+##### Forest Plot with Clinical Variables
+
+```{r Myo-I-Matched-Mortality-Adjusted-Forest, dpi=600, warning=FALSE, echo = echo}
+
+forest.RA <-
+  survminer::ggforest(
+    model = model.survival,
+    main = "Hazard Ratios for eGFR decline (> 30 %)"
+  )
+
+# print( forest.RA )
+
+```
+
+\newpage
+
+##### Diagnostics of the Survival Model
+
+```{r Myo-I-Matched-Mortality-Adjusted-Diagnostics, dpi=600, echo = echo}
+
+survminer::ggsurvplot(
+  fit = survival::survfit( formula = model.survival ), 
+  data = data.survival.stratified
+)
+
+survminer::ggcoxdiagnostics(
+  fit = model.survival, 
+  type = "schoenfeld", 
+  ox.scale = "time"
+)
+
+```
+
+\newpage
+
+##### Kaplan-Maier Curve with Median Cutpoint
+
+```{r Myo-I-Matched-Mortality-Kaplan-Maier, fig.height=6, fig.width=7, dpi=600, echo = echo}
+
+data.km <- data.survival.stratified
+
+data.km$"Myo_Inositol" <-
+  cut(
+    x = data.km$"Myo_Inositol",
+    breaks = c( -Inf, median( x = data.km$"Myo_Inositol", na.rm = TRUE ), Inf ),
+    labels = c( " <50%", " >50%" )
+  )
+
+data.km$"Myo_Inositol" <- relevel( x = data.km$"Myo_Inositol", ref = " >50%" )
+
+model.km <-
+  survival::survfit(
+    survival::Surv(
+      time = t_gfrfald30_p, 
+      event = censor_gfrfald30_p.reversed.numeric
+    ) 
+    ~
+      Myo_Inositol,
+    data = data.km
+  )
+
+plot <-
+  survminer::ggsurvplot(
+    fit = model.km, 
+    data = data.km, 
+    ggtheme = ggplot2::theme_minimal(),
+    palette = "Set1",
+    risk.table = TRUE, 
+    cumevents = TRUE,
+    pval = FALSE,
+    risk.table.height = 0.15, 
+    cumevents.height = 0.15,
+    conf.int = TRUE
+  )
+
+plot$"table" <- plot$"table" + survminer::theme_cleantable()
+plot$"cumevents" <- plot$"cumevents" + survminer::theme_cleantable()
+
+km.RA <- plot
+
+print( plot )
+
+```
+
+\newpage
+
+##### Boxplots
+
+```{r Boxplots-Myo-I, fig.width=4, dpi=600, warning=FALSE, echo = echo}
+
+data.plot <- data.survival.stratified
+
+data.plot$"Outcome" <- 
+  factor(
+    x = data.plot$"censor_gfrfald30_p", 
+    levels = c( "2", "0" ), 
+    labels = c( "Censored", "eGFR Decline (> 30 %)" )
+  )
+
+ggplot2::ggplot( 
+  data = data.plot, 
+  mapping = ggplot2::aes(
+    x = Outcome, 
+    y = Myo_Inositol
+    )
+  ) +
+  ggplot2::geom_violin( draw_quantiles = c( 0.25, 0.50, 0.75 ) ) + 
+  ggplot2::geom_jitter(
+    width = 0.1,
+    fill = "black",
+    stroke = 0,
+    shape = 16,
+    size = 2,
+    alpha = 0.25
+  ) +
+  ggplot2::ylab( label="Myo-Inositol" ) +
+  ggplot2::xlab( label="Outcome" )
+
+data.plot$"Gender" <- 
+  factor(
+    x = data.plot$"Sex", 
+    levels = c( 0, 1 ), 
+    labels = c( "Female", "Male" )
+  )
+
+data.plot$"Outcome.and.Gender" <- 
+  base::interaction( data.plot$"Outcome", data.plot$"Gender" )
+
+levels( data.plot$"Outcome.and.Gender" ) <- 
+  stringr::str_replace(
+    string = levels( data.plot$"Outcome.and.Gender" ), 
+    pattern = "\\.",
+    replacement = "\n"
+  )
+
+ggplot2::ggplot(
+  data = data.plot,
+  mapping = ggplot2::aes(
+    x = Outcome.and.Gender, 
+    y = Myo_Inositol,
+    size = Age, 
+    color = Gender
+  )
+) +
+  ggplot2::geom_violin( draw_quantiles = c( 0.25, 0.50, 0.75 ) ) + 
+  ggplot2::geom_jitter( 
+    width = 0.1,
+    stroke = 0,
+    shape = 16,
+    alpha = 0.25
+  ) +
+  ggplot2::scale_color_brewer( palette = "Dark2", direction = -1 ) +
+  ggplot2::ylab( label = "Myo-Inositol" ) +
+  ggplot2::xlab( label = "Outcome by Gender" ) +
+  ggplot2::theme( legend.position = "top" )
+
+```

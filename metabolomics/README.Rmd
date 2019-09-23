@@ -1,0 +1,19 @@
+---
+title: "0033_PROFIL: Statistical Analysis of the Metabolome in Relation to Renal Complications"
+author: Tommi Suvitaival, tommi.raimo.leo.suvitaival@regionh.dk, Steno Diabetes Center
+  Copenhagen
+date: "`r base::Sys.Date()`"
+output: github_document
+---
+
+See 0033_PROFIL--Metabolomics.Rmd for the script that produces the output shown below.
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r child = '0033_PROFIL--Metabolomics.Rmd'}
+
+```
