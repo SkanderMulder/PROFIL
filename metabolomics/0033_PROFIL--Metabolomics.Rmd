@@ -287,7 +287,11 @@ tmp <-
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+# data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+
+data.test <- data.w.healthy.control[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix( 
@@ -411,7 +415,11 @@ tmp <-
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+# data.test <- t( data.w.healthy.control[ tmp, names.metabolites ] )
+
+data.test <- data.w.healthy.control[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix( 
@@ -550,7 +558,11 @@ tmp <-
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data[ tmp, names.metabolites ] )
+# data.test <- t( data[ tmp, names.metabolites ] )
+
+data.test <- data[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix(
@@ -676,7 +688,11 @@ tmp <-
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data[ tmp, names.metabolites ] )
+# data.test <- t( data[ tmp, names.metabolites ] )
+
+data.test <- data[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix( 
@@ -718,8 +734,8 @@ tableone::CreateTableOne( data = design.test )
 
 results.egfr <- mEbFit
 
-for ( i in 2:ncol( mEbFit ) ) {
-# for ( i in 2:2 ) {
+# for ( i in 2:ncol( mEbFit ) ) {
+for ( i in 2:2 ) {
 
   name.effect <- colnames( mEbFit$"coefficients" )[ i ]
   
@@ -747,13 +763,6 @@ for ( i in 2:ncol( mEbFit ) ) {
   
   table.result.printed$"Name" <- rownames( table.result.printed )
   
-  table.result.printed$"Name" <- 
-    stringr::str_sub( 
-      string = table.result.printed$"Name",
-      start = 1,
-      end = 25
-    )
-  
   table.result.printed <- 
     table.result.printed[ , 
                           c( 
@@ -766,6 +775,26 @@ for ( i in 2:ncol( mEbFit ) ) {
                             "adj.P.Val"
                           )
                           ]
+  
+  if ( i == 2 ) {
+    
+    write.table(
+      x = table.result.printed,
+      file = "results/table-eGFR-adjusted.tsv",
+      na = "",
+      quote = FALSE,
+      row.names = FALSE,
+      sep = "\t"
+    )
+
+  }
+  
+  table.result.printed$"Name" <- 
+    stringr::str_sub( 
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
   
   print( 
     knitr::kable( 
@@ -833,7 +862,11 @@ tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data[ tmp, names.metabolites ] )
+# data.test <- t( data[ tmp, names.metabolites ] )
+
+data.test <- data[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 tmp <- names( which( table( design.test$"Batch.Manual" ) > 2 ) )
 
@@ -976,7 +1009,11 @@ tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data[ tmp, names.metabolites ] )
+# data.test <- t( data[ tmp, names.metabolites ] )
+
+data.test <- data[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix( 
@@ -1087,7 +1124,11 @@ tmp <- apply( X = !is.na( design.test ), MAR = 1, FUN = all )
 design.test <- design.test[ tmp, ]
 design.test <- droplevels( design.test )
 
-data.test <- t( data[ tmp, names.metabolites ] )
+# data.test <- t( data[ tmp, names.metabolites ] )
+
+data.test <- data[ tmp, names.metabolites ]
+data.test <- scale( x = data.test )
+data.test <- t( data.test )
 
 dm <- 
   stats::model.matrix( 
@@ -1150,13 +1191,6 @@ for ( i in 2:2 ) {
   
   table.result.printed$"Name" <- rownames( table.result.printed )
   
-  table.result.printed$"Name" <- 
-    stringr::str_sub(
-      string = table.result.printed$"Name",
-      start = 1,
-      end = 25
-    )
-  
   table.result.printed <- 
     table.result.printed[ , 
                           c( 
@@ -1169,7 +1203,27 @@ for ( i in 2:2 ) {
                             "adj.P.Val"
                           )
                           ]
+    
+  if ( i == 2 ) {
+    
+    write.table(
+      x = table.result.printed,
+      file = "results/table-logUAER-adjusted.tsv",
+      na = "",
+      quote = FALSE,
+      row.names = FALSE,
+      sep = "\t"
+    )
+    
+  }
   
+  table.result.printed$"Name" <- 
+    stringr::str_sub(
+      string = table.result.printed$"Name",
+      start = 1,
+      end = 25
+    )
+
   print( 
     knitr::kable( 
       x = table.result.printed,
